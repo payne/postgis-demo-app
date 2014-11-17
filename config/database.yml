@@ -1,0 +1,19 @@
+common: &common
+  adapter: postgresql
+  username: postgres
+  password: password
+  min_messages: ERROR
+
+development:
+  <<: *common
+  database: postgis_demo_app_development
+
+demo:
+  <<: *common
+  database: postgis_demo_app_demo
+
+test:
+  <<: *common
+  database: postgis_demo_app_test
+
+

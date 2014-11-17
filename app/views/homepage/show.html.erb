@@ -1,0 +1,168 @@
+<div id="house-map"></div>
+
+<script>
+  $(function() {
+    var el = document.getElementById('house-map');
+
+    var map = new google.maps.Map(el, {
+      center: new google.maps.LatLng(38.02, -92.53),
+      zoom: 4,
+      disableDefaultUI: true,
+      zoomControl: true,
+      zoomControlOptions: {
+        style: google.maps.ZoomControlStyle.SMALL,
+        position: google.maps.ControlPosition.RIGHT_BOTTOM
+      },
+      mapTypeId: google.maps.MapTypeId.HYBRID
+    });
+
+    var polygons = [];
+
+    var clearPolygons = function() {
+      polygons.forEach(function(polygon) {
+        polygon.setMap(null);
+      });
+
+      polygons = [];
+    };
+
+    var addPolygon = function(polygon) {
+      polygon.setMap(map);
+
+      polygons.push(polygon);
+    };
+
+    var pullPolygons = function() {
+      var center = map.getCenter();
+      var zoom = map.getZoom();
+
+      if(zoom >= 14) {
+        $.getJSON('<%= near_houses_path %>', {
+          lat: center.lat(),
+          lng: center.lng()
+        }, function(houses) {
+          clearPolygons();
+
+          houses.forEach(function(house) {
+            var geometry = JSON.parse(house.outline_geojson);
+
+            addPolygon(new google.maps.Polygon({
+              paths: geometry.coordinates.map(function(path) {
+                return path.map(function(point) {
+                  return new google.maps.LatLng(point[1], point[0]);
+                });
+              }),
+              fillColor: '#fff',
+              borderColor: '#fff'
+            }));
+          });
+        });
+      }else{
+        clearPolygons();
+      }
+    };
+
+    google.maps.event.addListener(map, 'dragend', pullPolygons);
+
+    var searchInput = document.createElement('input');
+    var searchBox = new google.maps.places.SearchBox(searchInput);
+
+    map.controls[google.maps.ControlPosition.TOP_LEFT].push(searchInput);
+    searchInput.setAttribute('placeholder', 'Jump to a location');
+
+    google.maps.event.addListener(searchBox, 'places_changed', function() {
+      var bounds = new google.maps.LatLngBounds();
+
+      searchBox.getPlaces().forEach(function(place) {
+        bounds.extend(place.geometry.location);
+      });
+
+      map.fitBounds(bounds);
+      setTimeout(pullPolygons, 0);
+    });
+
+    var drawingManager = new google.maps.drawing.DrawingManager({
+      drawingMode: google.maps.drawing.OverlayType.POLYGON,
+      drawingControl: false,
+      polygonOptions: {
+        fillColor: '#fff',
+        borderColor: '#fff'
+      }
+    });
+
+    var drawButton = document.createElement('button');
+
+    var drawing = false;
+
+    var startDrawing = function() {
+      drawButton.innerText = 'Done Drawing';
+      drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+      drawingManager.setMap(map);
+      drawing = true;
+    };
+
+    var doneDrawing = function() {
+      drawButton.innerText = 'Start Drawing';
+      drawingManager.setDrawingMode(null);
+      drawingManager.setMap(null);
+      drawing = false;
+    };
+
+    google.maps.event.addDomListener(map, 'zoom_changed', function() {
+      var zoom = map.getZoom();
+
+      if(zoom >= 14) {
+        drawButton.style.display = 'block';
+      }else{
+        doneDrawing();
+        drawButton.style.display = 'none';
+      }
+    });
+
+    google.maps.event.addDomListener(drawingManager, 'polygoncomplete', function(polygon) {
+      var path = polygon.getPath().getArray().map(function(point) {
+        return [point.lng(), point.lat()];
+      });
+
+      path.push(path[0]); // make sure the path is closed
+
+      var geometry = {
+        type: "Polygon",
+        coordinates: [path]
+      };
+
+      $.post('<%= houses_path %>', {
+        house: {
+          outline_geojson: JSON.stringify(geometry)
+        }
+      });
+
+      addPolygon(polygon);
+      pullPolygons();
+
+      doneDrawing();
+    });
+
+    map.controls[google.maps.ControlPosition.TOP_RIGHT].push(drawButton);
+    drawButton.innerText = 'Start Drawing';
+    drawButton.style.display = 'none';
+
+    drawButton.addEventListener('click', function() {
+      if(drawing) {
+        doneDrawing();
+      }else{
+        startDrawing();
+      }
+    }, false);
+
+    if(navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function(position) {
+        if(position && position.coords) {
+          var point = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
+          map.setCenter(point);
+          map.setZoom(14);
+        }
+      });
+    }
+  });
+</script>
